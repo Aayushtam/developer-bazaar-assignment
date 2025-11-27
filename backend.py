@@ -12,8 +12,8 @@ from langchain.agents import create_agent
 from langchain_core.vectorstores import InMemoryVectorStore
 
 
-chat_model = ChatOllama(model="gpt-oss:20b-cloud")
-embeddings_model = OllamaEmbeddings(model="mxbai-embed-large:latest")
+chat_model = ChatOllama(model="gpt-oss:20b-cloud", base_url="https://ai.jscloudminds.com/ollama")
+embeddings_model = OllamaEmbeddings(model="mxbai-embed-large:latest", base_url="https://ai.jscloudminds.com/ollama")
 # vector_store = Chroma(embedding_function=embeddings_model, persist_directory="./chroma_db", collection_name="documents")
 vector_store = InMemoryVectorStore(embeddings_model)
 # --------------------------
@@ -79,7 +79,7 @@ def process_file(file_path: str):
     # Add chunks to vector store
     vector_store.add_documents(documents=chunks)
 
-def retrieve_similar_chunks(query: str, k: int = 3, threshold: float = 0.0):
+def retrieve_similar_chunks(query: str, k: int = 3, threshold: float = 0.3):
     """
     Convert distance (0-2) to similarity (-1 to 1).
     Higher similarity = better.
@@ -118,7 +118,7 @@ def retrieve_similar_chunks(query: str, k: int = 3, threshold: float = 0.0):
 if __name__ == "__main__":
     # Example usage
     file_path = r"C:\Users\arjun\Downloads\Bank_Statement(3 months).pdf"  # Replace with your file path
-    # process_file(file_path)
+    process_file(file_path)
     agent = create_agent(
         model=chat_model,
         tools=[retrieve_similar_chunks],
