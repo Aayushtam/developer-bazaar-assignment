@@ -50,13 +50,10 @@ If no relevant chunks pass the threshold, system returns:
 
 ## Features
 
-Multi-format document ingestion
-Real-time Q&A over uploaded documents
-Similarity-based retrieval with thresholding
-No hallucination due to strict prompt and gating
-Reference source display (chunk ID + file)
-Clean and responsive Streamlit UI
+Multi-format document ingestion\n
+Real-time Q&A over uploaded documents\n
+Similarity-based retrieval with thresholding\n
+No hallucination due to strict prompt and gating\n
+Reference source display (chunk ID + file)\n
+Clean and responsive Streamlit UI\n
 
-RAG Workflow
-
-Docum
