@@ -1,4 +1,11 @@
-from langchain_ollama import ChatOllama, OllamaEmbeddings
+import os
+import sys
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings, ChatHuggingFace
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import (
     PyPDFLoader,
@@ -6,16 +13,54 @@ from langchain_community.document_loaders import (
     CSVLoader,
     Docx2txtLoader,
 )
-# from langchain_chroma import Chroma
-from langchain_classic.schema import Document
-from langchain.agents import create_agent
-from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
 
+# Global variables for models (lazy initialization)
+_chat_model = None
+_embeddings_model = None
+_vector_store = None
+PERSIST_DIRECTORY = "./chroma_db"
 
-chat_model = ChatOllama(model="gpt-oss:20b-cloud")
-embeddings_model = OllamaEmbeddings(model="mxbai-embed-large:latest")
-# vector_store = Chroma(embedding_function=embeddings_model, persist_directory="./chroma_db", collection_name="documents")
-vector_store = InMemoryVectorStore(embeddings_model)
+def get_chat_model():
+    """Lazily initializes and returns the Chat Model"""
+    global _chat_model
+    if _chat_model is None:
+        token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+        if not token:
+            raise ValueError("HUGGINGFACEHUB_API_TOKEN is missing")
+
+        repo_id = "HuggingFaceH4/zephyr-7b-beta"
+        llm = HuggingFaceEndpoint(
+            repo_id=repo_id,
+            task="text-generation",
+            max_new_tokens=512,
+            do_sample=False,
+            repetition_penalty=1.03,
+            huggingfacehub_api_token=token
+        )
+        _chat_model = ChatHuggingFace(llm=llm)
+    return _chat_model
+
+def get_embeddings_model():
+    """Lazily initializes and returns the Embeddings Model"""
+    global _embeddings_model
+    if _embeddings_model is None:
+        # This model is small and runs efficiently on CPU
+        _embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+    return _embeddings_model
+
+def get_vector_store():
+    """Lazily initializes and returns the Vector Store"""
+    global _vector_store
+    if _vector_store is None:
+        _vector_store = Chroma(
+            embedding_function=get_embeddings_model(),
+            persist_directory=PERSIST_DIRECTORY,
+            collection_name="documents"
+        )
+    return _vector_store
+
 # --------------------------
 # 1. Document Loader
 # --------------------------
@@ -77,54 +122,49 @@ def process_file(file_path: str):
     chunks = split_documents(documents, file_name)
 
     # Add chunks to vector store
+    vector_store = get_vector_store()
     vector_store.add_documents(documents=chunks)
 
-def retrieve_similar_chunks(query: str, k: int = 3, threshold: float = 0.0):
+def retrieve_similar_chunks(query: str, k: int = 3, threshold: float = 0.3):
     """
-    Convert distance (0-2) to similarity (-1 to 1).
-    Higher similarity = better.
-    threshold = minimum required similarity.
+    Retrieve chunks similar to the query.
     """
-    results = vector_store.similarity_search_with_score(query, k=k)
-    print("Raw Results:", results)
+    vector_store = get_vector_store()
+
+    # Using similarity_search_with_relevance_scores for normalized scores (0 to 1)
+    try:
+        results = vector_store.similarity_search_with_relevance_scores(query, k=k)
+    except Exception as e:
+        print(f"Error during search: {e}")
+        # Fallback to standard search
+        results = vector_store.similarity_search_with_score(query, k=k)
 
     if not results:
         return None, []
 
-    processed = []
-    
-    for doc, similarity in results:
-        # doc, similarity = results[0]   # convert distance → similarity
-        processed.append((doc, similarity))
+    # Filter results based on threshold
+    filtered_results = []
+    for doc, score in results:
+        if score >= threshold:
+            filtered_results.append((doc, score))
 
-    # Filter based on similarity >= threshold
-    filtered = [(doc, sim) for doc, sim in processed if sim >= threshold]
-
-    if not filtered:
+    if not filtered_results:
+        print(f"No chunks met the threshold of {threshold}. Top score was {results[0][1] if results else 0}")
         return None, []
 
     serialized = "\n\n".join(
         f"Source: {doc.metadata.get('source')} | Chunk ID: {doc.metadata.get('chunk_id')}\n"
         f"Content: {doc.page_content}"
-        for doc, sim in filtered
+        for doc, score in filtered_results
     )
 
-    docs_only = [doc for doc, sim in filtered]
+    docs_only = [doc for doc, score in filtered_results]
 
     return serialized, docs_only
 
-
-
 if __name__ == "__main__":
-    # Example usage
-    file_path = r"C:\Users\arjun\Downloads\Bank_Statement(3 months).pdf"  # Replace with your file path
-    # process_file(file_path)
-    agent = create_agent(
-        model=chat_model,
-        tools=[retrieve_similar_chunks],
-        system_prompt="Use the provided document chunks to answer the user's questions accurately. If the information is not available, respond with 'I don't know.'"
-    )
-    query = "who is ayush"
-    # response = agent.invoke({"messages": [{"role": "user", "content": query}]})
-    # print("Agent Response:", response['messages'][-1].content)
-    print("Similar Chunks:", retrieve_similar_chunks(query, k=3))
+    # Test block
+    if not os.getenv("HUGGINGFACEHUB_API_TOKEN"):
+        print("Error: HUGGINGFACEHUB_API_TOKEN not found in environment variables.")
+    else:
+        print("Backend initialized successfully (lazy loading ready).")

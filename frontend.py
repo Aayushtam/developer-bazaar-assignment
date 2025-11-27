@@ -1,7 +1,6 @@
+import os
 import streamlit as st
-import sys
-from pathlib import Path
-from backend import process_file, retrieve_similar_chunks, chat_model
+from backend import process_file, retrieve_similar_chunks, get_chat_model
 from langchain_core.messages import HumanMessage
 
 # Page Config
@@ -38,14 +37,24 @@ st.markdown("""
     margin: 8px 0;
     border-radius: 5px;
 }
-.reference-link {
-    color: #1f77b4;
-    text-decoration: none;
-    font-weight: 500;
-}
-.reference-link:hover { text-decoration: underline; }
 </style>
 """, unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# Check for API Key
+# -----------------------------------------------------------------------------
+if not os.getenv("HUGGINGFACEHUB_API_TOKEN"):
+    st.error("🚨 HUGGINGFACEHUB_API_TOKEN is missing!")
+    st.markdown("""
+    To fix this:
+    1. Create a file named `.env` in the project root.
+    2. Add your token: `HUGGINGFACEHUB_API_TOKEN=hf_...`
+    3. Restart the app.
+
+    *If deploying to Cloud, add it to the Secrets management.*
+    """)
+    st.stop()
+
 
 # Session State Initialization
 if "processed_files" not in st.session_state:
@@ -79,6 +88,8 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"❌ Error processing file: {str(e)}")
 
+    # Show processed files (this list resets on restart unless we read from DB,
+    # but strictly speaking user session state is fine for this simple app)
     if st.session_state.processed_files:
         st.divider()
         st.subheader("📚 Processed Documents")
@@ -92,7 +103,7 @@ with st.sidebar:
 
 # Main Title
 st.title("📄 Document Q&A Assistant")
-st.markdown("Ask questions about your uploaded documents powered by AI")
+st.markdown("Ask questions about your uploaded documents powered by AI (Hugging Face)")
 
 # Chat History
 st.subheader("Conversation History")
@@ -112,17 +123,16 @@ with col2:
 
 # Query Logic
 if search_button and query:
-    if not st.session_state.processed_files:
-        st.warning("⚠️ Please upload and process a document first.")
-    else:
-        with st.spinner("Searching and generating response..."):
-            try:
-                serialized_chunks, retrieved_docs = retrieve_similar_chunks(query, k=3)
+    with st.spinner("Searching and generating response..."):
+        try:
+            # Retrieve chunks
+            serialized_chunks, retrieved_docs = retrieve_similar_chunks(query, k=3, threshold=0.3)
 
-                # Add user query to history
-                st.session_state.chat_history.append({"role": "user", "content": query})
-
-                # System Prompt
+            # Logic for "I don't know"
+            if not retrieved_docs:
+                response_text = "I don't have enough information in the uploaded documents."
+            else:
+                # Construct Prompt
                 system_prompt = f"""
 You are a helpful assistant that answers questions strictly based on the provided document chunks.
 
@@ -131,68 +141,68 @@ RETRIEVED DOCUMENT CHUNKS:
 
 Instructions:
 - Answer ONLY using the chunks above.
-- If missing data, say: "I don't have this information in the provided documents."
-- Do not hallucinate.
+- If the chunks do not contain the answer, say: "I don't have enough information in the uploaded documents."
+- Do not hallucinate or use outside knowledge.
 """
-
                 messages = [
                     HumanMessage(content=system_prompt + f"\n\nUser Question: {query}")
                 ]
 
                 # Model Response
+                chat_model = get_chat_model() # Initialized lazily here
                 response = chat_model.invoke(messages)
                 response_text = response.content
 
-                # Save assistant response
-                st.session_state.chat_history.append({"role": "assistant", "content": response_text})
+            # Save to history
+            st.session_state.chat_history.append({"role": "user", "content": query})
+            st.session_state.chat_history.append({"role": "assistant", "content": response_text})
 
-                # 1. Show AI Response
-                st.subheader("🤖 AI Response")
-                st.markdown(f"""
-                <div class="response-box">
-                {response_text}
-                </div>
-                """, unsafe_allow_html=True)
+            # Display Response
+            st.subheader("🤖 AI Response")
+            st.markdown(f"""
+            <div class="response-box">
+            {response_text}
+            </div>
+            """, unsafe_allow_html=True)
 
-                # 2. Reference Sources AFTER AI response
-                st.subheader("🔗 Reference Sources (Used Above)")
-                if retrieved_docs:
-                    for idx, doc in enumerate(retrieved_docs, 1):
-                        source = doc.metadata.get("source", "Unknown")
-                        chunk_id = doc.metadata.get("chunk_id", "N/A")
+            # Display Sources
+            st.subheader("🔗 Reference Sources")
+            if retrieved_docs:
+                for idx, doc in enumerate(retrieved_docs, 1):
+                    source = doc.metadata.get("source", "Unknown")
+                    chunk_id = doc.metadata.get("chunk_id", "N/A")
+                    st.markdown(f"""
+                    <div class="reference-box">
+                        <b>Source {idx}</b>: {source}<br>
+                        <small>Chunk ID: {chunk_id}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No documents met the similarity threshold.")
 
-                        st.markdown(f"""
-                        <div class="reference-box">
-                            <b>Source {idx}</b>: {source}<br>
-                            <small>Chunk ID: {chunk_id}</small>
-                        </div>
-                        """, unsafe_allow_html=True)
-                else:
-                    st.info("No relevant reference sources found.")
-
-                # 3. Retrieved Chunks Last
-                st.subheader("📖 Retrieved Chunks (Raw Text)")
-                if retrieved_docs:
+            # Display Raw Chunks (Optional, good for debugging/demo)
+            if retrieved_docs:
+                with st.expander("View Raw Retrieved Chunks"):
                     for idx, doc in enumerate(retrieved_docs, 1):
                         st.markdown(f"""
                         <div class="source-box">
-                            <b>Chunk {idx}</b> | {doc.metadata.get('source', 'Unknown')} | ID: {doc.metadata.get('chunk_id','N/A')}
+                            <b>Chunk {idx}</b>
                             <hr style='margin: 5px 0;'>
                             {doc.page_content}
                         </div>
                         """, unsafe_allow_html=True)
 
-                st.rerun()
+            st.rerun()
 
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-                import traceback
-                st.error(traceback.format_exc())
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+            import traceback
+            st.error(traceback.format_exc())
 
 # Footer
 st.divider()
 st.markdown("""
 <div style='text-align: center; color: gray; font-size: 12px;'>
-    <p>Document Q&A Assistant | Powered by LangChain & Ollama</p>
+    <p>Document Q&A Assistant | Powered by LangChain & Hugging Face</p>
 </div>
 """, unsafe_allow_html=True)
