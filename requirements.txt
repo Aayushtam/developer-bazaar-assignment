@@ -6,3 +6,4 @@ langchain-ollama
 langchain-text-splitters
 sentence-transformers
 pypdf
+docx2txt
