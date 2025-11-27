@@ -5,3 +5,4 @@ langchain-community
 langchain-ollama
 langchain-text-splitters
 sentence-transformers
+pypdf
