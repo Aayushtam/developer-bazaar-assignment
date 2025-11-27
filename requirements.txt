@@ -2,6 +2,6 @@ streamlit
 langchain
 langchain-core
 langchain-community
-langchain-huggingface
+langchain-ollama
 langchain-text-splitters
 sentence-transformers
