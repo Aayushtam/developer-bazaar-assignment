@@ -6,7 +6,7 @@ from langchain_community.document_loaders import (
     CSVLoader,
     Docx2txtLoader,
 )
-# from langchain_chroma import Chroma
+from langchain_chroma import Chroma
 from langchain_classic.schema import Document
 from langchain.agents import create_agent
 from langchain_core.vectorstores import InMemoryVectorStore
@@ -14,8 +14,8 @@ from langchain_core.vectorstores import InMemoryVectorStore
 
 chat_model = ChatOllama(model="gpt-oss:20b-cloud", base_url="https://ai.jscloudminds.com/ollama")
 embeddings_model = OllamaEmbeddings(model="mxbai-embed-large:latest", base_url="https://ai.jscloudminds.com/ollama")
-# vector_store = Chroma(embedding_function=embeddings_model, persist_directory="./chroma_db", collection_name="documents")
-vector_store = InMemoryVectorStore(embeddings_model)
+vector_store = Chroma(embedding_function=embeddings_model, persist_directory="./chroma_db", collection_name="documents")
+# vector_store = InMemoryVectorStore(embeddings_model)
 # --------------------------
 # 1. Document Loader
 # --------------------------
