@@ -7,3 +7,4 @@ langchain-text-splitters
 sentence-transformers
 pypdf
 docx2txt
+langchain-chroma
