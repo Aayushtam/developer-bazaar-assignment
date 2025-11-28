@@ -81,7 +81,7 @@ def process_file(file_path: str):
 
 def retrieve_similar_chunks(query: str, k: int = 3, threshold: float = 0.3):
     """
-    Convert distance (0-2) to similarity (-1 to 1).
+    similarity (-1 to 1).
     Higher similarity = better.
     threshold = minimum required similarity.
     """
@@ -94,7 +94,6 @@ def retrieve_similar_chunks(query: str, k: int = 3, threshold: float = 0.3):
     processed = []
     
     for doc, similarity in results:
-        # doc, similarity = results[0]   # convert distance → similarity
         processed.append((doc, similarity))
 
     # Filter based on similarity >= threshold
